@@ -1,0 +1,166 @@
+---
+title: "Project_Mollusca"
+author: "Alexandra Tsitrina"
+date: "10/8/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr, quietly = TRUE)
+library(magrittr, quietly = TRUE)
+library(ggplot2)
+library(reshape2)
+library(purrr)
+```
+
+
+```{r}
+abs_way <- getwd()
+data_files<- dir(abs_way, pattern =".csv")
+Mollusca <- list()
+for(i in 1:length(data_files)){
+file <- read.table(data_files[i], header=TRUE, sep=",", stringsAsFactors=TRUE)
+
+
+Mollusca <- rbind(Mollusca, file)
+}
+str(Mollusca)
+    
+```
+
+## Renaming and type switching in dataframe
+Firstly, we have to rename our second variable from Sex..1...male..2...female..3...uvenil. to Sex
+
+
+```{r}
+colnames(Mollusca)[colnames(Mollusca) == 'Sex..1...male..2...female..3...uvenil.'] <- 'Sex'
+colnames(Mollusca)
+
+Mollusca %>% select_all() %>%summarise_all(funs(sum(is.na(.))))
+Mollusca$Diameter <-  as.numeric(Mollusca$Diameter,quietly = TRUE) #convert all in numeric type
+Rings <- unique(Mollusca$Rings)
+print(Rings)
+Mollusca$Rings[Mollusca$Rings == "nine"] <- "9"
+Length <- unique(Mollusca$Length)
+print(Length)
+Mollusca$Length[Mollusca$Length == "No data! I forgot to mesure it!("] <- NA
+
+Mollusca$Rings <- as.numeric(Mollusca$Rings, quietly = TRUE)
+Mollusca$Length <-  as.double(Mollusca$Length, queitly = TRUE)
+Mollusca %>% select_all() %>% summarise_all(funs(sum(is.na(.))))
+
+```
+
+
+
+
+```{r}
+sex <- unique(Mollusca$Sex)
+print(sex)#check for unique values
+Mollusca$Sex[Mollusca$Sex == "three"] <- "3" 
+Mollusca$Sex[Mollusca$Sex == "one"] <- "1"
+Mollusca$Sex[Mollusca$Sex == "male"] <- "1"
+sex_new <- unique(Mollusca$Sex) #after changing the uncorrect values
+Mollusca$Sex <- factor(Mollusca$Sex, levels = c("1", "2","3"), labels = c("Male", "Female", "Uvenile"))
+str(Mollusca)
+#Sex as factor
+
+```
+
+Outliers
+
+```{r}
+size_weight = melt(Mollusca)
+ggplot(size_weight, aes(x = variable,y = value),quietly = TRUE) + facet_wrap(~variable, scale="free") + geom_boxplot(aes(fill = variable), size = 1)+ labs( y = "value", x = NULL) + theme(axis.text.x = element_text(angle=0, hjust=1, vjust=0.5)) 
+
+```
+Calculating and removing the outliers
+
+```{r}
+
+outliers <- function(dataframe){
+  dataframe %>%
+      select_if(is.numeric) %>% 
+      map(~ boxplot.stats(.x)$out)
+  }
+
+List_of_outl <- outliers(Mollusca)
+str(List_of_outl)
+out_Rings <- List_of_outl$Rings
+
+
+Mollusca <- mutate(Mollusca, Age = case_when(Rings <=3 ~ 1,
+                       (Rings > 3 & Rings <16) ~ 2,
+                       Rings >= 16 ~ 3))
+
+
+Mollusca$Age <- factor(Mollusca$Age, levels = c(1,2,3), labels = c("young", "middage", "old"))
+
+
+
+
+
+
+```
+
+
+```{r}
+outlierreplacement <- function(dataframe){
+   dataframe %>%          
+           map_if(is.numeric, ~ replace(.x, .x %in% boxplot.stats(.x)$out, NA)) %>%
+           bind_cols }
+
+outlierreplacement(Mollusca[,3:9])
+Mollusca <- Mollusca[complete.cases(Mollusca),]
+Mollusca %>% select_all() %>% summarise_all(funs(sum(is.na(.))))
+cor(Mollusca[,3:9])
+``` 
+Глядя на полученную таблицу можно заметить, что переменные, характеризующие вес или размер моллюска, очень сильно коррелируют между собой. Логично было бы применить схлопнуть наши 6 переменных в 2, описывающие изменения размера и веса в зависимости от пола и возраста особи
+
+
+```{r}
+
+Len <- aggregate(Mollusca$Length ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
+Wheight <- aggregate(Mollusca$Whole_weight ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
+
+Sum_Len <- cbind(Len[-ncol(Diam)], Len[[ncol(Len)]])
+Sum_Wheight <- cbind(Wheight[-ncol(Wheight)], Wheight[[ncol(Wheight)]])
+print(Sum_Len)
+```
+Выведем показатели распределения длинны по группам (возраст, пол)
+```{r}
+print(Sum_Wheight)
+```
+И показатели веса
+ В общем случае, для моллюсков разного пола, среднее и sd равно
+```{r}
+Mollusca %>% group_by(Sex) %>% select(Length, Whole_weight) %>% summarise_each(funs(mean, sd)) # 3
+
+ungroup(Mollusca)
+
+small <- Mollusca %>% filter(Height < 0.165)
+percent_of_small <- nrow(small) / nrow(Mollusca) *100 #4
+
+quantile_vec <- quantile(Mollusca$Length,c(0,0.25,0.5,0.75, 0.92, 1))
+# quantile_vec[5] - ответ на 5
+
+```
+ Создание стандартизованной переменной длины
+ 
+ 
+```{r}
+Mollusca$Lenght_z_scores <- scale(Mollusca$Length, center = TRUE, scale = TRUE) #6
+ y_Diam <- Mollusca %>% filter(Rings == 5) %>% select(Diameter)
+ o_Diam <- Mollusca %>% filter(Rings == 15) %>% select(Diameter)
+t.test(y_Diam, o_Diam, var.equal = FALSE) #7
+
+cor.test(Mollusca$Diameter, Mollusca$Whole_weight)
+lm(Mollusca$Diameter ~ Mollusca$Whole_weight, data = Mollusca)
+ fit(lm_model)
+ 
+
+```
