@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+options(encoding = "UTF-8")
 library(dplyr, quietly = TRUE)
 library(magrittr, quietly = TRUE)
 library(ggplot2)
@@ -20,6 +21,9 @@ library(purrr)
 
 ```{r}
 abs_way <- getwd()
+#please insert the absolute way to your files
+abs_way <- normalizePath(abs_way)
+
 data_files<- dir(abs_way, pattern =".csv")
 Mollusca <- list()
 for(i in 1:length(data_files)){
@@ -127,7 +131,7 @@ cor(Mollusca[,3:9])
 Len <- aggregate(Mollusca$Length ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
 Wheight <- aggregate(Mollusca$Whole_weight ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
 
-Sum_Len <- cbind(Len[-ncol(Diam)], Len[[ncol(Len)]])
+Sum_Len <- cbind(Len[-ncol(Len)], Len[[ncol(Len)]])
 Sum_Wheight <- cbind(Wheight[-ncol(Wheight)], Wheight[[ncol(Wheight)]])
 print(Sum_Len)
 ```
@@ -159,8 +163,8 @@ Mollusca$Lenght_z_scores <- scale(Mollusca$Length, center = TRUE, scale = TRUE) 
 t.test(y_Diam, o_Diam, var.equal = FALSE) #7
 
 cor.test(Mollusca$Diameter, Mollusca$Whole_weight)
-lm(Mollusca$Diameter ~ Mollusca$Whole_weight, data = Mollusca)
- fit(lm_model)
+lm_model <- lm(Mollusca$Diameter ~ Mollusca$Whole_weight, data = Mollusca)
+model_fit<- fit(lm_model)
  
 
 ```
