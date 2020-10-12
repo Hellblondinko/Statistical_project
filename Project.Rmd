@@ -122,6 +122,7 @@ outlierreplacement(Mollusca[,3:9])
 Mollusca <- Mollusca[complete.cases(Mollusca),]
 Mollusca %>% select_all() %>% summarise_all(funs(sum(is.na(.))))
 cor(Mollusca[,3:9])
+pairs(Mollusca[,3:9])
 ``` 
 Глядя на полученную таблицу можно заметить, что переменные, характеризующие вес или размер моллюска, очень сильно коррелируют между собой. Логично было бы применить схлопнуть наши 6 переменных в 2, описывающие изменения размера и веса в зависимости от пола и возраста особи
 
@@ -164,7 +165,7 @@ t.test(y_Diam, o_Diam, var.equal = FALSE) #7
 
 cor.test(Mollusca$Diameter, Mollusca$Whole_weight)
 lm_model <- lm(Mollusca$Diameter ~ Mollusca$Whole_weight, data = Mollusca)
-model_fit<- fit(lm_model)
+
  
 
 ```
