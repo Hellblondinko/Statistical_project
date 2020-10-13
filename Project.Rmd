@@ -13,9 +13,12 @@ knitr::opts_chunk$set(echo = TRUE)
 options(encoding = "UTF-8")
 library(dplyr, quietly = TRUE)
 library(magrittr, quietly = TRUE)
-library(ggplot2)
-library(reshape2)
-library(purrr)
+library(ggplot2, quietly = TRUE,)
+library(reshape2, quietly = TRUE)
+library(purrr, quietly = TRUE)
+library(utf8, quietly = TRUE)
+library(factoextra, quietly = TRUE)
+
 ```
 
 
@@ -78,7 +81,7 @@ str(Mollusca)
 Outliers
 
 ```{r}
-size_weight = melt(Mollusca)
+size_weight = melt(Mollusca, id.vars = "Sex", measure.vars = c("Rings","Length", "Diameter", "Height", "Whole_weight", "Shucked_weight", "Viscera_weight", "Shell_weight"), quietly = TRUE)
 ggplot(size_weight, aes(x = variable,y = value),quietly = TRUE) + facet_wrap(~variable, scale="free") + geom_boxplot(aes(fill = variable), size = 1)+ labs( y = "value", x = NULL) + theme(axis.text.x = element_text(angle=0, hjust=1, vjust=0.5)) 
 
 ```
@@ -96,13 +99,17 @@ List_of_outl <- outliers(Mollusca)
 str(List_of_outl)
 out_Rings <- List_of_outl$Rings
 
+max(Mollusca$Rings)
+Mollusca <- mutate(Mollusca, Age = case_when(Rings <=5 ~ 1,
+                       (Rings >= 6 & Rings <= 10) ~ 2,
+                       (Rings >= 11 & Rings >16) ~ 3,
+                       (Rings <= 16 & Rings <=30) ~ 4))
+                        
 
-Mollusca <- mutate(Mollusca, Age = case_when(Rings <=3 ~ 1,
-                       (Rings > 3 & Rings <16) ~ 2,
-                       Rings >= 16 ~ 3))
 
+Mollusca$Age <- factor(Mollusca$Age, levels = c(1,2,3,4), labels = c("baby", "young", "teen","adult"))
 
-Mollusca$Age <- factor(Mollusca$Age, levels = c(1,2,3), labels = c("young", "middage", "old"))
+max(Mollusca$Rings)
 
 
 
@@ -110,7 +117,7 @@ Mollusca$Age <- factor(Mollusca$Age, levels = c(1,2,3), labels = c("young", "mid
 
 
 ```
-
+в переменной Ring количество выбросов довольно значительное, 278 наблюдений, если посмотреть на значения, то мы видим, что это либо очень юные особи, либо очень старые.
 
 ```{r}
 outlierreplacement <- function(dataframe){
@@ -118,23 +125,53 @@ outlierreplacement <- function(dataframe){
            map_if(is.numeric, ~ replace(.x, .x %in% boxplot.stats(.x)$out, NA)) %>%
            bind_cols }
 
-outlierreplacement(Mollusca[,3:9])
+outlierreplacement(Mollusca[,1,3:9])
 Mollusca <- Mollusca[complete.cases(Mollusca),]
+
 Mollusca %>% select_all() %>% summarise_all(funs(sum(is.na(.))))
 cor(Mollusca[,3:9])
 pairs(Mollusca[,3:9])
 ``` 
 Глядя на полученную таблицу можно заметить, что переменные, характеризующие вес или размер моллюска, очень сильно коррелируют между собой. Логично было бы применить схлопнуть наши 6 переменных в 2, описывающие изменения размера и веса в зависимости от пола и возраста особи
 
+Проверка на нормальность распределения всех переменных кроме Sex
+```{r}
+shapiro_test_df <- function(df, bonf= FALSE, alpha= 0.05) {
+        l <- lapply(df, shapiro.test)
+        s <- do.call("c", lapply(l, "[[", 1))
+        p <- do.call("c", lapply(l, "[[", 2))
+        if (bonf == TRUE) {
+                sig <- ifelse(p > alpha / length(l), "H0", "Ha")
+        } else {
+                sig <- ifelse(p > alpha, "H0", "Ha")
+        }
+        return(list(statistic= s,
+                    p.value= p,
+                    significance= sig,
+                    method= ifelse(bonf == TRUE, "Shapiro-Wilks test with Bonferroni Correction",
+                                   "Shapiro-Wilks test without Bonferroni Correction")))
+}
 
+Mollusca %>% select(is.numeric)%>% shapiro_test_df()
+```
+
+Как видно из таблицы, данные имеют ненормальное распределение (Ha), поэтому для дальнейшего анализа необходимо использовать непараметрические критерии.
 ```{r}
 
-Len <- aggregate(Mollusca$Length ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
+Diam <- aggregate(Mollusca$Diameter ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
 Wheight <- aggregate(Mollusca$Whole_weight ~ Mollusca$Sex + Mollusca$Age, data = Mollusca, function(x) c (mean = mean(x),median = median(x),sd = sd(x),first_quantile = quantile(x,0.25),third_quantile = quantile(x,0.75)))
 
-Sum_Len <- cbind(Len[-ncol(Len)], Len[[ncol(Len)]])
+Sum_Diam <- cbind(Diam[-ncol(Diam)], Diam[[ncol(Diam)]])
 Sum_Wheight <- cbind(Wheight[-ncol(Wheight)], Wheight[[ncol(Wheight)]])
-print(Sum_Len)
+print(Sum_Diam)
+ggplot(Mollusca, aes(x = Diameter, y = Whole_weight, col = Sex))+
+  geom_smooth()+facet_grid(Mollusca$Sex)
+
+ggplot(Mollusca, aes(x = Age, y = Whole_weight, col = Sex), na.rm = TRUE) +
+  geom_boxplot()
+ggplot(Mollusca, aes(x = Age, y = Diameter, col = Sex),na.rm = TRUE )+
+  geom_boxplot()
+
 ```
 Выведем показатели распределения длинны по группам (возраст, пол)
 ```{r}
@@ -154,18 +191,49 @@ quantile_vec <- quantile(Mollusca$Length,c(0,0.25,0.5,0.75, 0.92, 1))
 # quantile_vec[5] - ответ на 5
 
 ```
- Создание стандартизованной переменной длины
+ Создание стандартизованной переменной длины и сравнение диаметра у двух групп, молодые и взрослые моллюски. Расчет корреляции Пирсона для переменных длина и общий вес. 
  
  
 ```{r}
 Mollusca$Lenght_z_scores <- scale(Mollusca$Length, center = TRUE, scale = TRUE) #6
- y_Diam <- Mollusca %>% filter(Rings == 5) %>% select(Diameter)
- o_Diam <- Mollusca %>% filter(Rings == 15) %>% select(Diameter)
-t.test(y_Diam, o_Diam, var.equal = FALSE) #7
+ y_Diam <- Mollusca %>% filter(Rings == 5) %>% select(Diameter) 
+ o_Diam <- Mollusca %>% filter(Rings == 15) %>% select(Diameter) 
+ wilcox.test(o_Diam$Diameter, y_Diam$Diameter) #7
+ 
 
-cor.test(Mollusca$Diameter, Mollusca$Whole_weight)
-lm_model <- lm(Mollusca$Diameter ~ Mollusca$Whole_weight, data = Mollusca)
+  ggplot(Mollusca, aes(x = Age, y = Diameter, col = Sex))+
+   geom_boxplot()
+  ggplot(Mollusca, aes(x = Age, y = Whole_weight, col = Sex))+
+   geom_boxplot()
+  
+
+
 
  
 
+```
+
+```{r}
+get_pc <- function(d){
+a <- prcomp(d)
+new_d <- list()
+  new_d$PC1 <- a$x[,1]
+  new_d$PC2 <- a$x[,2]
+  return(new_d)
+}
+mod_Mollusca <- get_pc(Mollusca[,3:9])
+mod_Mollusca$Sex <- Mollusca$Sex
+mod_Mollusca$Age <- Mollusca$Age
+mod <- as.data.frame(mod_Mollusca)
+
+ggplot(mod, aes(PC1, PC2),
+  group=interaction(Age, Sex)) + 
+  geom_point(col = "green") + geom_smooth()+facet_wrap(~Sex+Age, scales = "free")
+
+res_pca <- prcomp(Mollusca[,3:9], center = TRUE, scale = TRUE)
+summary(res_pca)
+screeplot(res_pca, type = "b", npcs = 8, main = "Screeplot of the PCs")
+abline(h = 1, col="red", lty=5)
+legend("topright", legend=c("Eigenvalue = 1"),
+       col=c("red"), lty=5, cex=0.6)
 ```
