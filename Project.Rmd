@@ -8,19 +8,18 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
+Необходимые нам библиотеки:
 ```{r}
 options(encoding = "UTF-8")
-library(dplyr, quietly = TRUE)
-library(magrittr, quietly = TRUE)
-library(ggplot2, quietly = TRUE,)
-library(reshape2, quietly = TRUE)
-library(purrr, quietly = TRUE)
-library(utf8, quietly = TRUE)
-library(factoextra, quietly = TRUE)
+
+PkgNames <- c("dplyr", "magrittr", "ggplot2", "reshape2", "purrr","utf8")
+invisible(suppressMessages(suppressWarnings(lapply(PkgNames, require, character.only = T))))
+
 
 ```
 
+### Dataframe generation ###
+Соберем полную таблицу с данными из исходных файлов и выведем структуру получившегося объекта:
 
 ```{r}
 abs_way <- getwd()
@@ -39,16 +38,15 @@ str(Mollusca)
     
 ```
 
-## Renaming and type switching in dataframe
-Firstly, we have to rename our second variable from Sex..1...male..2...female..3...uvenil. to Sex
-
+## Renaming and type switching in dataframe ###
+Переименуем вторую переменную нашего датафрема из "Sex..1...male..2...female..3...uvenil." в "Sex". Затем изменим тип переменной Diameter на numeric. Т.к.в нашем датасете есть еще 2 переменные строкового типа, а именно Lenght и Rings, то проверим их на уникальные элементы. Как мы видим, в интересующих нас колонках обнаруживаются неправильно записанные данные. Заменяем эти значения либо на правильный формат ("nine" на "9"), либо на NA. Проверим все переменные нашего датафрема на наличие NA-значений до и после работы с отдельными наблюдениями, как мы видим, количество NA после выросло.
 
 ```{r}
 colnames(Mollusca)[colnames(Mollusca) == 'Sex..1...male..2...female..3...uvenil.'] <- 'Sex'
 colnames(Mollusca)
 
 Mollusca %>% select_all() %>%summarise_all(funs(sum(is.na(.))))
-Mollusca$Diameter <-  as.numeric(Mollusca$Diameter,quietly = TRUE) #convert all in numeric type
+Mollusca$Diameter <-  as.numeric(Mollusca$Diameter,quietly = TRUE) #convert  in numeric type
 Rings <- unique(Mollusca$Rings)
 print(Rings)
 Mollusca$Rings[Mollusca$Rings == "nine"] <- "9"
@@ -61,7 +59,7 @@ Mollusca$Length <-  as.double(Mollusca$Length, queitly = TRUE)
 Mollusca %>% select_all() %>% summarise_all(funs(sum(is.na(.))))
 
 ```
-
+Найдем все уникальные значения 
 
 
 
@@ -152,7 +150,7 @@ shapiro_test_df <- function(df, bonf= FALSE, alpha= 0.05) {
                                    "Shapiro-Wilks test without Bonferroni Correction")))
 }
 
-Mollusca %>% select(is.numeric)%>% shapiro_test_df()
+Mollusca %>% select(where(is.numeric))%>% shapiro_test_df()
 ```
 
 Как видно из таблицы, данные имеют ненормальное распределение (Ha), поэтому для дальнейшего анализа необходимо использовать непараметрические критерии.
@@ -167,10 +165,7 @@ print(Sum_Diam)
 ggplot(Mollusca, aes(x = Diameter, y = Whole_weight, col = Sex))+
   geom_smooth()+facet_grid(Mollusca$Sex)
 
-ggplot(Mollusca, aes(x = Age, y = Whole_weight, col = Sex), na.rm = TRUE) +
-  geom_boxplot()
-ggplot(Mollusca, aes(x = Age, y = Diameter, col = Sex),na.rm = TRUE )+
-  geom_boxplot()
+
 
 ```
 Выведем показатели распределения длинны по группам (возраст, пол)
@@ -207,33 +202,15 @@ Mollusca$Lenght_z_scores <- scale(Mollusca$Length, center = TRUE, scale = TRUE) 
    geom_boxplot()
   
 
-
+ 
+  
 
  
 
 ```
 
 ```{r}
-get_pc <- function(d){
-a <- prcomp(d)
-new_d <- list()
-  new_d$PC1 <- a$x[,1]
-  new_d$PC2 <- a$x[,2]
-  return(new_d)
-}
-mod_Mollusca <- get_pc(Mollusca[,3:9])
-mod_Mollusca$Sex <- Mollusca$Sex
-mod_Mollusca$Age <- Mollusca$Age
-mod <- as.data.frame(mod_Mollusca)
 
-ggplot(mod, aes(PC1, PC2),
-  group=interaction(Age, Sex)) + 
-  geom_point(col = "green") + geom_smooth()+facet_wrap(~Sex+Age, scales = "free")
 
-res_pca <- prcomp(Mollusca[,3:9], center = TRUE, scale = TRUE)
-summary(res_pca)
-screeplot(res_pca, type = "b", npcs = 8, main = "Screeplot of the PCs")
-abline(h = 1, col="red", lty=5)
-legend("topright", legend=c("Eigenvalue = 1"),
-       col=c("red"), lty=5, cex=0.6)
+
 ```
