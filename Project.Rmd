@@ -271,7 +271,7 @@ ggplot(Mollusca, aes(x = Age, y = Whole_weight, col = Sex))+
 Таким образом, использовать такую модель нельзя, очевидно, что вес моллюсков зависит от каких-то еще не учтенных факторов.
 ```{r}
 Mollusca$Weight_z <- scale(Mollusca$Whole_weight, center = TRUE, scale = TRUE)
-Mollusca$Vol <- 4*3.14*(Mollusca$Length*Mollusca$Diameter*Mollusca$Height)/3
+Mollusca$Vol <- 4*3.14*(Mollusca$Length*Mollusca$Diameter*Mollusca$Height)/6
 Mollusca$Vol_z <- scale(Mollusca$Vol, center = T, scale = T)
 model_1 <- lm( Weight_z ~ Vol_z + Age + Sex , data = Mollusca)
 model_2 <- lm(Weight_z ~ Vol_z + Age  , data = Mollusca)
