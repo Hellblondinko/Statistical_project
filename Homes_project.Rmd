@@ -1,0 +1,151 @@
+---
+title: "Homes"
+author: "Alexandra Tsitrina"
+date: "11/14/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, tidy = TRUE)
+```
+
+Загрузим необходимые нам библиотеки и данные. Проведем стандартизацию нумерических переменных, переведем переменные chas и rad в факторный вид. Выведем структуру получившегося датасета. Как мы видим, наш датасет состоит из 14 переменных и 506 наблюдений. 
+
+```{r cars}
+options(encoding = "UTF-8")
+
+PkgNames <- c("MASS", "dplyr", "ggplot2", "reshape2", "corrplot","utf8", "caTools", "lattice","purrr", "car")
+new.packages <- PkgNames[!(PkgNames %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+invisible(suppressMessages(suppressWarnings(lapply(PkgNames, require, character.only = T))))
+#Dataset generation
+data <- Boston
+data$chas <- factor(data$chas, levels = c(0,1), labels = c("Outside", "Riverside"))
+data$rad <- as.factor(data$rad)
+
+#Scaling and adding factors
+data_sc <-data  %>% select_if(is.numeric) %>% scale %>% data.frame()
+data_sc$chas <- data$chas
+data_sc$rad <- data$rad
+
+#Checking for NA
+numberOfNA <- length(which(is.na(data_sc)==T))
+if(numberOfNA>0) {
+  data_sc <- data_sc[complete.cases(data_sc),]
+}
+
+#Spliting dataset for train and test parts
+set.seed(123)
+split <- sample.split(data_sc,SplitRatio = 0.75) #assigns booleans to a new coloumn based on the split ratio
+train <- subset(data_sc,split==TRUE)
+test <- subset(data_sc,split==FALSE)
+
+# Dataset structure
+str(train)
+```
+
+## Including Plots
+
+На следующем шаге нащего анализа выведем основные показатели распределения наших переменных, проведем проверку на нормальность распределения и построим боксплот-графики распределения наших нумерических переменных. Как видно из приведенных данных все переменные распределены ненормально, наблюдается значительная разница между средним значением и медианой. В переменных crim, zn, black и medv наблюдается значительный перекос распределения и множество выбросов. 
+
+```{r}
+m1 <- reshape2::melt(train, id.vars = c("chas", "rad"), measure.vars = c("crim", "zn", "indus", "nox", "rm","age","dis","tax","ptratio","black", "lstat","medv"))
+ggplot(m1,aes(factor(variable), value)) + facet_wrap(~variable, scales = "free") + geom_boxplot(color = "blue", size = 1)+ labs( y = "value", x = NULL) + theme(axis.text.x = element_text(angle=0, hjust=1, vjust=0.5))+ theme(legend.position = "righ")
+
+summary(train[,1:12])
+
+shapiro_test_df <- function(df, bonf= FALSE, alpha= 0.05) {
+        l <- lapply(df, shapiro.test)
+        s <- do.call("c", lapply(l, "[[", 1))
+        p <- do.call("c", lapply(l, "[[", 2))
+        if (bonf == TRUE) {
+                sig <- ifelse(p > alpha / length(l), "H0", "Ha")
+        } else {
+                sig <- ifelse(p > alpha, "H0", "Ha")
+        }
+        return(list(statistic= s,
+                    p.value= p,
+                    significance= sig,
+                    method= ifelse(bonf == TRUE, "Shapiro-Wilks test with Bonferroni Correction",
+                                   "Shapiro-Wilks test without Bonferroni Correction")))
+}
+
+shapiro_test_df(train[,1:12])
+
+
+```
+Удалим выбросы из самых "грязных" переменных (crim, zn, black и medv) и выведем еще раз распределения наших нумерических переменных. Теперь распределение выглядят более нормально. 
+
+
+```{r}
+
+data_clean <- train[,c(1,2,10,12)] %>%          
+           map_if(is.numeric, ~ replace(.x, .x %in% boxplot.stats(.x)$out, NA)) %>%
+           bind_cols 
+data_clean %>% summarise_all(funs( sum(is.na(.))))
+train <- train[complete.cases(data_clean),]
+summary(train[,1:12])
+
+```
+Построим графики корреляции и диаграммы рассеяния между всеми нумерическими переменными. Отмечается довольно сильная положительная корреляция между переменными tax и сrim, и сильная отрицательная корреляция между переменной medv и переменной lstat. Между остальными переменными наблюдается либо корреляция средней и слабой силы.  Согласно диаграммам рассеивания, линейная зависимость наблюдается между парами переменных medv и lstat,  medv и age. Связь между остальными переменными и medv линейной можно назвать весьма условно.
+```{r}
+corrplot(cor(train[,1:12]))
+xnames <- colnames(train)
+for (i in 1:11) {
+        car::scatterplot(medv ~ train[,i], train, xlab = xnames[i])
+}
+
+```
+
+Построим полную модель без взаимодействия переменных и выведем ее коэфициенты. Часть предикторов в нашей модели оказалась незначимыми, а именно zn,indus,nox,black и chas. Скорректированный R-квадрат оказался равен 0.7108, что говорит о том, что 71.08% вариабельности стоимости домов в Бостоне (medv) объясняется нашей моделью.
+```{r}
+lm.fit <- lm(medv~.,train)
+summary(lm.fit)
+```
+Избавимся от незначимых предикторов, выкинув их из нашей модели и выведем получившиеся коэфициенты. Скорректированный R-квадрат слегка снизился - до 0.7086. 
+```{r}
+lm.fit_1 <- lm(medv~.-indus-nox-black-chas-zn,train)
+summary(lm.fit_1)
+```
+Чтобы повысить качество предсказаний нашей модели, введем взаимодействие переменных. Логично предположить, что общий налог на дом (tax) связан с размером дома/участка; в нашем случае - с количеством комнат (rm). Второе логичное предположение - что уровень преступности (crim) связан с количеством бедного населения (lstat). Введем эти два взаимодействия в нашу модель и выведем ее коэфициенты. Как можно заметить из результатов модели, оба взаимодействия оказывают значимое влияние на цену. Также видно, что в таком случае, предиктор crim сам по себе становится незначимым, однако его взаимодействие с переменной lstat значительнее всего влияет на цену из всех нумерических переменных (-0,70502). Самое значительное влияние на цену дома оказывает одна из градаций фактора rad, а именно rad24. (1.22558). Остатки нашей модели распределены б/м равномерно, медиана близка к нулю, а минимум и максимум довольно близки по модулю. Скорректированный R-квадрат стал равен 0.7904, что значительно лучше чем давала модель без взаимодействия. 
+
+```{r}
+lm.fit_3 <- lm(medv~dis+rad+tax*rm+age+crim*lstat+ptratio,train)
+summary(lm.fit_3)
+
+```
+Проведем оценку качества нашей модели. Распределение остатков на графике близко к нормальному, паттерна в распределении остатков тоже не наблюдается. На графике QQ-plot отклонения от теоретических квантилей наблюдается только в правой верхней части графика. Это значит, что наша модель довольно точно предсказывает значение цены исходя из заданных предикторов, отклонения в большую сторону от предсказанных значений наблюдается только для самых дорогих лотов. График Scale-Location показывает нам, что остатки нашей модели распределены относительно равномерно, паттернов не наблюдается. В целом можно сказать, что требование гомоскедастичности остатков не нарушается.  Расстояние Кука для всех наблюдений не превышает 1, что говорит об отсутствии влиятельных наблюдений в данных (выбросы).
+```{r}
+residuals <- data.frame('Residuals' = lm.fit_3$residuals)
+res_hist <- ggplot(residuals, aes(x=Residuals)) + geom_histogram(color='black', fill='skyblue', binwidth = 0.05) + ggtitle('Histogram of Residuals')
+res_hist
+plot(lm.fit_1, col='Sky Blue')
+
+```
+
+Предсказание стоимости дома в зависимости от наиболее влиятельного (по модулю) предиктора из модели lm.fit_3. Таких предиктором является взаимодействие переменных lstat:crim. Построим модель по нашим очищенным от выбросов данным, а предсказание сделаем на изначальных данных. Для оценки качества предсказания такой модели посчитаем R-квадрат - квадрат коэффициента корреляции между реальными и расчитанными значениями. Как мы видим, для модели с одним предиктором он очент низкий - всего 0.039. Для модели со взаимодействиями (lm.fit_3) аналогичное значение равно 0.557, что значительно лучше. На графиках представлены результаты предсказаний обеих моделей. 
+
+```{r}
+lm.fit_4 <- lm(medv~ crim*lstat-crim-lstat, train)
+summary(lm.fit_4)
+
+predicted_medv <- predict(lm.fit_4, test)
+predicted_medv_2 <- predict(lm.fit_3, test)
+
+ggplot(test,aes(medv,predicted_medv)) +geom_point(alpha=0.5) + stat_smooth() +xlab('Actual value of medv') +ylab('Predicted value of medv') +annotate(geom = "text", x=1, y = 5, label = "R-squared = 0.039")+theme_bw()
+
+medv <- test$medv
+rsq<- cor(medv, predicted_medv)^ 2
+print(rsq)
+
+ggplot(test,aes(medv,predicted_medv_2)) + geom_point(alpha=0.5) + stat_smooth() +xlab('Actual value of medv') +ylab('Predicted value of medv') +theme_bw()+annotate(geom = "text", x=1, y = 4, label = "R-squared = 0.557")
+rsq2 <- cor(medv,predicted_medv_2)^ 2
+print(rsq2)
+```
+
+Выводы из исследования:
+
+1. Переменные zn,indus,nox,black и chas не оказывают значимого влияния на стоимость жилья в Бостоне. 
+2. Согласно полученной модели, наибольшее влияние на цену жилья оказывает взаимодействие предикторов lstat и crim, также сильнее всего на стоимость жилья влияет уровень фактора rad, а именно rad24.
+3. Лучшая модель позволяет предсказывать цену с точностью порядка 80%.
