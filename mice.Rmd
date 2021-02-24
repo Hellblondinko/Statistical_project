@@ -1,0 +1,222 @@
+---
+title: "Untitled"
+author: "Alexandra Tsitrina"
+date: "2/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, tidy = TRUE )
+knitr::opts_knit$set(root.dir = '/Volumes/STORAGE/Bioinf/ML/Mice')
+```
+Необходимые пакеты:
+
+```{r}
+options(encoding = "UTF-8")
+
+PkgNames <- c("dplyr", "magrittr", "ggplot2", "reshape2", "purrr","utf8", "data.table", "plyr", "rcompanion", "corrplot", "car", "multcomp", "DescTools", "vegan", "randomForest", "caTools", "ROCR", "rattle", "rpart", "gdata", "stringr", "plotly", "Rtsne")
+new.packages <- PkgNames[!(PkgNames %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+invisible(suppressMessages(suppressWarnings(lapply(PkgNames, require, character.only = T))))
+```
+
+Загрузим наш датасет и выведем его структуру. В датасете иммется 1080 наблюдений и 82 переменные, причем первая и 4 последних переменные это факторы.
+Описание переменной class:
+c-CS-s: control mice, stimulated to learn, injected with saline 
+c-CS-m: control mice, stimulated to learn, injected with memantine
+c-SC-s: control mice, not stimulated to learn, injected with saline 
+c-SC-m: control mice, not stimulated to learn, injected with memantine 
+
+t-CS-s: trisomy mice, stimulated to learn, injected with saline 
+t-CS-m: trisomy mice, stimulated to learn, injected with memantine 
+t-SC-s: trisomy mice, not stimulated to learn, injected with saline 
+t-SC-m: trisomy mice, not stimulated to learn, injected with memantine 
+
+
+```{r}
+mice <- read.xls('/Volumes/STORAGE/Bioinf/ML/Mice/Data_Cortex_Nuclear.xls',perl="/usr/bin/perl" )
+str(mice)
+```
+В первой переменной записаны номера мышей в исследовании и очевидно, что там есть птехнические повторы, то разделим эту переменную на 2. ID ,первая переменная будет содержать ID мыши, вторая - номер повтора. Выведем количество получившихся мышей, всего их 72. Сгруппируем наши наблюдения по номеру мыши и посмотрим, сколько технических повторов приходится на каждую мышь, их 15.
+
+```{r }
+mice_number <- str_split(mice$MouseID, pattern = "_", n=2, simplify = T)
+mice$ID <- as.factor(mice_number[,1])
+mice$replicate <- as.factor(mice_number[,2])
+total_N <- length(unique(mice$ID)) 
+print(total_N)
+mice %>% group_by(ID) %>% tally()
+```
+Посчитаем количество NA в наших наблюдениях. Как видно из данных, в большинстве переменных количество NA равно 3, в 2-х переменных их количество равно 18 и в последних 6 переменных их количество от 75 до 285.
+```{r}
+na_count <-sapply(mice, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count %>% filter(na_count > 0) %>% print(na_count)
+
+```
+Найдем выбросы и заменим их на NA и еще раз посчитаем их количество. Как видно из данных, откровенных выбросов в них нет.
+
+```{r, echo = FALSE }
+outlierreplacement <- function(dataframe){
+   dataframe %>%          
+           map_if(is.numeric, ~ replace(.x, .x %in% boxplot.stats(.x)$out, NA)) %>%
+           bind_cols }
+
+outlierreplacement(mice)
+```
+
+```{r}
+na_count2 <- sapply(mice, function(y) sum(length(which(is.na(y)))))
+na_count2 <- data.frame(na_count2)
+na_count$outl <- na_count2$na_count2 
+rm(na_count2)
+na_count %>% filter( outl > 0) %>% print(na_count)
+
+```
+Уберем из датасета переменные, где количество NA больше 70. В оставшемся датасете удалим строчки с NA. В итоговом датасете у нас будет 1047 наблюдений и 78 переменных
+
+```{r, echo=False}
+col <- row.names(na_count %>% filter (outl >70))
+cols <- match(col, colnames(mice))
+clean_data <- subset(mice, select = -cols)
+clean_data <- na.omit(clean_data)
+
+
+```
+Расчитаем количество наблюдений для каждой экспереиментальной группы (class). Как мы видим, наши группы не сбалансированы по количеству наблюдений. Поэтому, для расчета ANOVA воспользуемся функцией Anova с памарметром type = 'III'. Как мы видим, груфик QQ-plot говорит нам о том, что данные распределеяются более/менее равномерно. И график распределения остатков и график scale-location указывают, что в наших данных имеются 3 влиятельных наблюдения (182,918,376). График Residuals vs Laverage говорит о том, что у нас иммется 1 выброс (182). 
+В целом можно сказать что основные требования к данным для расчета ANOVA соблюдаются.
+
+
+```{r}
+as_tibble(subset(clean_data, select = c(class, ID))) %>% group_by(class) %>% tally()
+boxplot(BDNF_N ~  class, data = clean_data)
+BDNF_model <- aov( BDNF_N ~  class , data = clean_data)
+
+par(mfrow=c(2,2))
+plot(BDNF_model)
+par(mfrow=c(1,1))
+
+Anova(BDNF_model, type = "III")
+summary(glht(BDNF_model, linfct = mcp(class = "Tukey")))
+
+```
+Согласно результатам анализа ANOVA с пост-хок тестом Тьюки, значимые отличия в уровне BDNF_N были обнаружены между группами:
+
+c-SC-m - c-CS-m == 0 -0.0482717  0.0053980  -8.942  < 0.001 *** - обучение влияло на уровень BDNF_N у контрольных мышей, получавших мемантин.
+c-SC-s - c-CS-s == 0 -0.0289228  0.0056900  -5.083  < 0.001 *** - обучение влияло на уровень BDNF_N у контрольных мышей, получавших раствор.
+t-SC-s - t-CS-s == 0  0.020126   0.006129   3.284  0.02328   *  - обучение влияло на уровень BDNF_N у трансгенных мышей, получавших раствор.
+
+t-CS-m - c-CS-m == 0 -0.0264852  0.0055459  -4.776  < 0.001 *** - генотип влиял на уровень BDNF_N у обученных мышей, получавших мемантин.
+t-CS-s - c-CS-s == 0 -0.0368549  0.0060829  -6.059  < 0.001 *** - генотип влиял на уровень BDNF_N у обученных мышей, получавших раствор. 
+t-SC-m - c-SC-m == 0  0.0301176  0.0055459   5.431  < 0.001 *** - генотип влиял на уровень BDNF_N у необученных мышей, получавших мемантин.
+t-SC-s - c-SC-s == 0  0.018423   0.005912   3.116  0.03884   *  - генотип влиял на уровень BDNF_N у необученных мышей, получавших раствор.
+
+Таким образом, можно сделать следующие выводы:
+1. Обучение повышало уровень BDNF_N у  контрольных мышей вне зависимости от введения мемантина. У трансгенных животных обучение снижало BDNF_N только у животных, получавших раствор.
+2. У трансгенных обученных мышей, уровень BDNF_N был ниже по сравнению с контрольными обученными мышами, вне зависимости от воздействия. В то же время, у необученых трансгенных животных уровень BDNF_N был выше чем у необученных контрольных животных, вне зависимости от воздействия. 
+3. Сам по себе мемантин не оказывал значимого воздействия. 
+
+
+Подбор линейной модели, характеризующую уровень белка ERBB4_N  в зависимости от других белков. Разобьем весь наш датасет на тестовую и тренировочную части и построим полную модель (ERBB4_model). Затем из результатов модели отберем только те предикторы, которые достоверно влияют на отклик и построим новую модель (linear_model1). Повтории операцию до тех пор, пока в модели не останутся только значимые предикторы (linear_model2). Построим график корреляций предикторов и выведем коэфициенты vif. Как фидно из графика, а также из значений коэфициента vif, наблюдается значимая сильная корреляция между предиктором MTOR_N и pMTOR_N. Т.к. по сути, эти предикторы характеризуют один и тот же белок, то оставим только предиктор MTOR_N. Таким образом наша финальная модель - это linear_model3. Из факторных предикторов у нас остались только Genotype и Behavior. Согласно коэфициенту Adjusted R-squared, наша модель описывает 77.62 % дисперсии уровня ERBB4_N. 
+
+```{r}
+boxplot(ERBB4_N ~  class, data = clean_data)
+data_for_lm <- clean_data[,2:75]
+
+set.seed(8)
+ss <- sample(1:2, size=nrow(data_for_lm), replace = TRUE, prob = c(0.75,0.25))
+train <- data_for_lm[ss==1,]
+test <- data_for_lm[ss==2,]
+
+
+ERBB4_model <- lm(ERBB4_N ~ ., data = train)
+summary(ERBB4_model)
+
+threshold <- 0.05
+sign <- names(which((summary(ERBB4_model)$coefficients[2:(nrow(summary(ERBB4_model)$coefficients)), 4] < threshold) == TRUE))
+print(sign)
+
+  linear_model <- lm(ERBB4_N ~ pBRAF_N + AKT_N+ ERK_N + APP_N + MTOR_N + pMTOR_N + pGSK3B_N + pPKCG_N + RRP1_N + ARC_N + Tau_N + IL1B_N + P3525_N + pCASP9_N + PSD95_N +      SYP_N + CaNA_N + Genotype + Behavior, data = train)
+  summary(linear_model)
+
+  sign <- names(which((summary(ERBB4_model)$coefficients[2:(nrow(summary(linear_model)$coefficients)), 4] < threshold) == TRUE))
+  print(sign)
+  linear_model2 <- lm(ERBB4_N ~  AKT_N+ APP_N + MTOR_N + pMTOR_N + pGSK3B_N  + RRP1_N + ARC_N + Tau_N + IL1B_N + P3525_N + pCASP9_N + PSD95_N + SYP_N + Genotype + Behavior, data = train)
+  summary(linear_model2)
+  
+  corrplot(cor(train[, indexes[1:14]] ),  method = "color")
+  vif(linear_model2)
+  
+  linear_model3 <- lm(ERBB4_N ~ AKT_N+ APP_N + MTOR_N+ pGSK3B_N  + RRP1_N + ARC_N + Tau_N + IL1B_N + P3525_N + pCASP9_N + PSD95_N +      SYP_N + Genotype + Behavior, data=train)
+  
+  summary(linear_model3)
+  vif(linear_model3)
+  
+```
+Тест на линейность взаимосвязи между предикторами и зависимой переменной.  Как видно из приведенных графиков, 4 переменных из 12 характеризуются линейной взаимосвязью между ними и откликом (Tau_N,IL-1B_N, PSD95_N и SYP_N). 
+```{r}
+  prot_names <- colnames(linear_model3$model)
+  indexes <- match(prot_names, colnames(train))
+  print(prot_names)
+for (i in 2:13) {
+        car::scatterplot(ERBB4_N ~ train[,i], train,  xlab = prot_names[i])
+}
+```
+Согласно гистограмме остатков, остатки модели имеют нормальное распреление с центром около 0, но немного несимметричными краями, что подтверждается графиком QQ-plot. В распределении остатков тяготеет к правому краю графика. Влиятельных наблюдений не обнаружено.
+```{r}
+residuals <- data.frame('Residuals' = linear_model3$residuals)
+res_hist <- ggplot(residuals, aes(x=Residuals)) + geom_histogram(color='black', fill='skyblue', binwidth = 0.001) + ggtitle('Histogram of Residuals')
+res_hist
+plot(linear_model3, col='Sky Blue')
+```
+Предсказание уровня белка. На тестовом наборе данных проверим нашу модель и расчитаем уровеь ERBB4_N. Для оценки качества предсказания такой модели посчитаем R-квадрат - квадрат коэффициента корреляции между реальными и расчитанными значениями. В нашем случае этот коэффициент был равен 0,774. Построим график рассеивания для предсказанных и реальных значений в нашем датасете. 
+Можно сказать, что несмотря на некоторые нарушения к требованиям линейной модели, полученная модель довольно неплохо предсказывает уровень целевого белка.
+
+```{r}
+predicted <- predict(linear_model3, test)
+rsq<- cor(test$ERBB4_N, predicted)^ 2
+print(rsq)
+ggplot(test,aes(ERBB4_N ,predicted)) +geom_point(alpha=0.5) + stat_smooth() +xlab('Actual value of ERBB4') +ylab('Predicted value of ERBB4') +annotate(geom = "text", x=0.170, y = 0.185, label = "R-squared = 0.774")+theme_bw()
+```
+
+
+
+Анализ главных компонент. Отцентрируем данныеи проведем PCA. В результате, получается что достаточным для описания наших данных являются первые 6 компонент. Первая компонента объясняет 27,89 % вариации в данных, PC2 - 44,25 %, PC3 - 55,37%, PC4 - 63,08 %, PC5 - 67,96 %, PC6 - 72,07%. Построим графики ординаций и факторных нагрузок. А также график распределения наших данных в осях первых 3 компонент. 
+
+```{r}
+PCA <- rda(clean_data[,2:72], scale = TRUE)
+head(summary(PCA))
+
+screeplot(PCA, bstick = TRUE, type = 'lines') 
+fact_pres <-data.frame(scores(PCA, display = 'species', choices = c(1,2,3,4), scaling = 'species', correlation = TRUE))
+
+biplot(PCA, scaling = 'species', correlation = TRUE, display = 'species') #график нагрузок
+biplot(PCA, scaling = 'sites', display = 'sites') #график ординаций
+
+
+clean_data$G_B <- with(clean_data, interaction(clean_data$Genotype, clean_data$Behavior))
+df_scores <-data.frame(clean_data[,2:72],scores(PCA,display ='sites',scaling ='sites', choices = c(1,2,3)))
+plot_ly(x=df_scores$PC1, y = df_scores$PC2, z = df_scores$PC3, type="scatter3d", mode="markers", color=clean_data$class) 
+
+```
+tSNE
+
+
+```{r}
+colors <-  rainbow(length(unique(clean_data$class)))
+names(colors) <-  unique(clean_data$class)
+ecb = function(x,y){ plot(x,t='n'); text(x,labels=clean_data$class, col=colors[clean_data$class]) }
+tsne_prot = tsne(clean_data[,2:72], epoch_callback = ecb, perplexity=100)
+
+
+prot <- data.matrix(clean_data)
+# perform dimensionality redcution from 64D to 2D
+tsne <- Rtsne(as.matrix(prot[,2:72]), check_duplicates = FALSE, pca = FALSE, perplexity=30, theta=0.5, dims=2)
+
+# display the results of t-SNE
+cols <- rainbow(10)
+plot(tsne$Y, t='n')
+text(tsne$Y, labels=prot[,2:72], col=cols[prot[,2:72] +1])
+
+```
+
