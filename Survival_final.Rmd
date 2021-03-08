@@ -1,0 +1,92 @@
+---
+title: "Ovarian_dataset"
+author: "Alexandra Tsitrina"
+date: "2/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, tidy = TRUE )
+knitr::opts_knit$set(root.dir = '/Volumes/STORAGE/Bioinf/ML/Ovarian')
+```
+
+## Анализ выживаемости ##
+Необходимые библиотеки
+```{r }
+options(encoding = "UTF-8")
+
+PkgNames <- c("survival","survminer", "dplyr", "ggplot2", "utf8", "caTools", "lubridate", "gtsummary" )
+new.packages <- PkgNames[!(PkgNames %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+invisible(suppressMessages(suppressWarnings(lapply(PkgNames, require, character.only = T))))
+```
+
+## Данные ##
+Загрузим данные и посмотрим на их структуру. Значения переменных:
+futime:	survival or censoring time
+fustat:	censoring status
+age:	in years
+resid.ds:	residual disease present (1=no,2=yes)
+rx:	treatment group
+ecog.ps:	ECOG performance status (1 is better, see reference)
+
+Проведем EDA нашего датасета. Переведем переменные resid.ds, rx, ecog.ps в факторный вид. Построим гистограмму распределения испытуюмых по возрасту, как видно из данных гистограммы, 55 лет является средним возрастом по нашей выборке.  Поэтому, создадим новую факторную переменную, обозначающую возраст - старше 55 лет или моложе 55 (over_55). 
+```{r pressure, echo=FALSE}
+data <- ovarian
+str(data)
+data$resid.ds <- factor(data$resid.ds, levels = c(1,2), labels = c("No", "Yes"))
+data$rx <- factor(data$rx, levels = c(1,2), labels = c("A", "B"))
+data$ecog.ps <- factor(data$ecog.ps, levels = c(1,2), labels = c("good", "bad"))
+hist(data$age)
+data$over_55 <- ifelse(data$age >=55, 1, 2)
+data$over_55 <- factor(data$over_55, levels = c(1,2), labels = c("old", "young"))
+```
+
+
+## Кривые Каплана Майера ##
+Построим кривые выживаемости Каплана-Майера в зависимости от факторных переменных. Как видно из графиков, значимо (p<0.05) на выживаемость влияет только возраст пациента (старше или моложе 55 лет). Стоит заметить, что переменная resid.ds также значительно, хоть и не достоверно, влияет на выживаемость пациентов (p = 0.057). 
+```{r}
+surv_object <- Surv(time = data$futime, event =  data$fustat)
+fit <- survfit(surv_object ~ rx, data = ovarian)
+ggsurvplot(fit, data = ovarian, pval = TRUE, conf.int = TRUE, risk.table = TRUE, risk.table.col = "strata",linetype = "strata", surv.median.line = "hv",risk.table.y.text = FALSE )
+fit1 <- survfit(surv_object ~ resid.ds,data = data)
+fit2 <- survfit(surv_object ~ ecog.ps, data = data)
+ggsurvplot(fit1, data = data, pval = TRUE, conf.int = TRUE, risk.table = TRUE, risk.table.col = "strata",linetype = "strata", surv.median.line = "hv", risk.table.y.text = FALSE)
+ggsurvplot(fit2, data = data, pval = TRUE, conf.int = TRUE, risk.table = TRUE, risk.table.col = "strata",linetype = "strata", surv.median.line = "hv", risk.table.y.text = FALSE)
+fit3 <- survfit(surv_object ~ over_55, data)
+ggsurvplot(fit3, data = data, pval = TRUE, conf.int = TRUE, risk.table = TRUE, risk.table.col = "strata",linetype = "strata", surv.median.line = "hv", risk.table.y.text = FALSE)
+summary(fit3)
+```
+## Сравнение групп при помощи log-rank теста ##
+Используем log-rank тест для оценки различий между 2-мя кривыми выживаемости для кривых, построенных для возраста (over_55) и наличия остаточного заболевания (resid.ds). Согласно результатам теста, возраст (больше или меньше 55 лет) значимо влияет на вероятность выжить (p=0.03). Наличие остаточного заболевания также вносит весомый вклад в вероятность выжить, несмотря на то, что p = 0.06. В данном случае,мы не можем сказать, что это влияние достоверно (т.к. мы отвергаем H0 при p < 0.05). Такой результат может объясняться небольшой выборкой, возможно, имей мы больше наблюдений, переменная resid.ds также оказывала бы значимое влияние на выживаемость.     
+
+```{r}
+surv_diff_age <- survdiff(Surv(time = data$futime, event =  data$fustat) ~ over_55, data)
+surv_diff_age
+
+surv_diff_resid <- survdiff(Surv(time = data$futime, event =  data$fustat) ~ resid.ds,data = data)
+surv_diff_resid
+
+```
+
+## Анализ факторов, влияющих на риск (модель Кокса) ##
+Т.к. модель Кокса может работать как с факторными, так и с нумерическими данными, для начала построим модель, учитывающую реальный возраст (age) пациента. Как видно из данных таблицы и графика отношения рисков, при такой модели, только реальный возраст оказывает влияние на шансы пациента на выживание (p = 0.008). При увеличении возраста, шансы выжить падают.
+```{r}
+fit.coxph <- coxph(surv_object ~ rx + resid.ds + age + ecog.ps, data = data)
+fit.coxph %>% tbl_regression(exp = TRUE) 
+ggforest(fit.coxph, data = data)
+```
+
+
+Построим другую модель Кокса, учитывающую возраст как факторную величину (over_55). В такой модели, тип лечения (rx) B значительно увеличивает шансы выжить для пациента (p = 0.047). Возраст меньше 55 лет, также достоверно увеличивает шансы на выживание в этой модели (p=0.033). Наличие остаточного заболевания опять же недостоверно (p=0.069) снижает шансы пациента на выживание.
+```{r}
+fit.coxph1 <- coxph(surv_object ~ rx + resid.ds + over_55 + ecog.ps, 
+                   data = data)
+fit.coxph1 %>% tbl_regression(exp = TRUE) 
+ggforest(fit.coxph1, data = data)
+```
+
+
+## Выводы ##
+Согласно проведенному анализу можно сказать, что выживаемость пациентов с раком яичников зависит в первую очередь от возраста пациентов. Чем старше пациент, тем меньше для него вероятность выжить. Также, согласно модели Кокса, тип лечения B увеличивает шансы выжить для пациентов, однако этот вывод не подтверждается другими моделями. Наличие остаточного заболевания (resid.ds) хоть и не оказывает достоверного влияния на выживаемость в нашей выборке, при увеличении количества участников исследования может перейти в категорию значимых предикторов и снижать шансы на выживание. 
