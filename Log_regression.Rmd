@@ -1,0 +1,100 @@
+---
+title: "Log_regression"
+author: "Alexandra Tsitrina"
+date: "4/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,  message=FALSE, tidy = TRUE )
+```
+Библиотеки:
+```{r}
+PkgNames <- c( "dplyr", "ggplot2", "tidyverse", "ROCR", "broom" )
+new.packages <- PkgNames[!(PkgNames %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+```
+Загрузим данные и посмотрин на их структуру и количество пропущенных значений. 
+
+```{r cars}
+data <- read.csv('/Volumes/STORAGE/Bioinf/ML/binary.csv')
+summary(data)
+str(data)
+colSums(is.na(data))
+```
+
+## Including Plots
+
+Подготовка данных. Переведем admit и rank в факторы и разобьем датасет на test и train.
+
+```{r pressure, echo=FALSE}
+data$admit <- as.factor(data$admit)
+data$rank <- as.factor(data$rank)
+set.seed(42)
+ss <- sample(1:2, size=nrow(data), replace = TRUE, prob = c(0.75,0.25))
+train <- data[ss==1,]
+test <- data[ss== 2,]
+```
+
+Построение и сравнение моделей. Согласно результатам ANOVA, разницы между 2мя моделями нет. Можем использовать полную модель.
+```{r}
+model <- glm(admit ~ ., data = train, family = binomial(link = 'logit'))
+summary(model)
+model1 <- glm(admit ~ . -gre, data = train, family = binomial(link = 'logit'))
+summary(model1)
+anova(model, model1, test="Chisq")
+```
+Проверка на линейность оклика, он практически линеен.
+```{r}
+model_diag <- data.frame(.fitted = fitted(model, type = 'response'),
+                        .resid_p = resid(model, type = 'pearson'))
+
+ggplot(model_diag, aes(y = .resid_p, x = .fitted)) + 
+  geom_point() +
+  theme_bw() +
+  geom_hline(yintercept = 0) +  
+  geom_smooth(method = 'loess')
+```
+Проверка на сверхдисперсию, ее нет.
+```{r}
+overdisp_fun <- function(model) {
+  rdf <- df.residual(model)  # Число степеней свободы N - p
+  if (any(class(model) == 'negbin')) rdf <- rdf - 1 ## учитываем k в NegBin GLMM
+  rp <- residuals(model,type='pearson') # Пирсоновские остатки
+  Pearson.chisq <- sum(rp^2) # Сумма квадратов остатков, подчиняется Хи-квадрат распределению
+  prat <- Pearson.chisq/rdf  # Отношение суммы квадратов остатков к числу степеней свободы
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE) # Уровень значимости
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)        # Вывод результатов
+}
+
+overdisp_fun(model)
+```
+Выведем коэфициенты модели и расчитаем шансы.  
+```{r}
+tidy(model)
+exp(coef(model))
+confint(model)
+```
+На тестовых данных предскажем переменную admit с помощью нашей модели и посчитаем точность предсказаний. Предсказывает чуть лучше чем случайно. 
+```{r}
+fitted.results <- predict(model,newdata=test[,2:4],type='response')
+test$predict <- ifelse(fitted.results > 0.5,1,0)
+misClasificError <- mean(test$predict != test$admit)
+print(paste('Accuracy',1-misClasificError))
+```
+Нарисуем ROC-кривую для нашей модели и посчитаем площадт под кривой. AUC = 0,67. 
+
+```{r}
+pr <- prediction(fitted.results, test$admit)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
+Построенная нами модель предсказывает поступление в университет в зависимости от переменных rank, gre и gpa немногим лучше чем случайный классификатор.
+
+
+
+
